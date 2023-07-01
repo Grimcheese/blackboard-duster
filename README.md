@@ -1,3 +1,8 @@
+This is a fork of the Blackboard Duster python app created by Tavlor. Pretty much all of the code and documentation 
+was written by him and I have just made some modifications of my own to handle edge cases I encountered while trying to
+use it.
+
+
 # Blackboard Duster
 A scraper script for Blackboard, built with python, selenium, and the requests library. It downloads files from your courses, and sorts them neatly into folders.
 
