@@ -35,6 +35,7 @@ TODO:
 import argparse
 import json
 import requests
+import random
 
 from enum import Enum
 from datetime import datetime
@@ -245,14 +246,14 @@ def get_courses_info(driver, delay_mult, save_root):
     result = []
     # TODO course announcements are included in the list
     if not wait_on_CSS_selector(
-            driver,'div#div_25_1 a',delay_mult,10):
+            driver,'div#div_4_1 a',delay_mult,10):
         print('I did not see your course list! Aborting')
         driver.quit()
         exit()
     # be more specific when selecting the links - the wait statement's
     # selector includes announcement links, which we don't want
-    course_links = driver.find_elements_by_css_selector(
-        'div#div_25_1 > div > ul > li > a')
+    course_links = driver.find_elements(By.CSS_SELECTOR,
+        'div#div_4_1 > div > ul > li > a')
     for c_l in course_links:
         link = Link(
             c_l.get_attribute('href'),
@@ -277,11 +278,11 @@ def get_navpane_info(driver, course_link, delay_mult):
             driver,'ul#courseMenuPalette_contents',delay_mult,10):
         print('I could not access the navpane! skipping')
         return []
-    page_link_elements = driver.find_elements_by_css_selector(
+    page_link_elements = driver.find_elements(By.CSS_SELECTOR,
         'ul#courseMenuPalette_contents a')
     result = []
     for element in page_link_elements:
-        title = element.find_element_by_css_selector(
+        title = element.find_element(By.CSS_SELECTOR,
             'span').get_attribute('title')
         link = Link(
             element.get_attribute('href'),
@@ -309,20 +310,22 @@ def gather_links(page_link, driver, delay_mult=1):
         'links': [],
         'folders': []
     }
+    web_links = []
+
     if not wait_on_CSS_selector(
             driver,'ul#content_listContainer',delay_mult,3):
         print('This page does not have a content list.')
         return results
     # get a list of all items in the content list
-    page_content = driver.find_elements_by_css_selector(
+    page_content = driver.find_elements(By.CSS_SELECTOR,
         'ul#content_listContainer > li')
     for item in page_content:
-        i_type = item.find_element_by_css_selector(
+        i_type = item.find_element(By.CSS_SELECTOR,
             'img').get_attribute('alt')
         # in the header holding the name there is a hidden <span> that
         # gets in the way; ignore it by looking for the style attribute
         try:
-            i_name = item.find_element_by_css_selector(
+            i_name = item.find_element(By.CSS_SELECTOR,
                     'span[style]').text
         except:
             print('failed to find item name. Skipping... ')
@@ -330,7 +333,7 @@ def gather_links(page_link, driver, delay_mult=1):
         # print(f'    {i_type}: {i_name}'
         if i_type == 'File':
             # files are just a link
-            link_element = item.find_element_by_css_selector(
+            link_element = item.find_element(By.CSS_SELECTOR,
                 'a')
             link = Link(
                 link_element.get_attribute('href'),
@@ -344,7 +347,7 @@ def gather_links(page_link, driver, delay_mult=1):
             # folders contain another page
             # no need to track its element
             link = Link(
-                item.find_element_by_css_selector(
+                item.find_element(By.CSS_SELECTOR,
                     'a').get_attribute('href'),
                 i_name,
                 (page_link.save_path / i_name)
@@ -352,8 +355,12 @@ def gather_links(page_link, driver, delay_mult=1):
             results['folders'].append(link)
         elif i_type == 'Web Link':
             # TODO dump links into a per-page file (markdown?)
+            print("Found a link!")
+            link_element = item.find_element(By.CSS_SELECTOR, 'a')
+            print(link_element.get_attribute('href'))
             # TODO ignore webpages but download files
-            pass
+            
+            web_links.append(i_name + "\n\t" + link_element.get_attribute('href'))
         elif i_type == 'Item':
             # TODO dump info into a per-page file (markdown?)
             pass
@@ -362,8 +369,16 @@ def gather_links(page_link, driver, delay_mult=1):
             print(f'    ** {i_type} is not a supported item',
                   ' type - attachments will still be collected **')
 
+        # save web links to text file
+        file_string = "\n".join(web_links)
+        page_link.save_path.parents[-2].mkdir(parents=True, exist_ok=True)
+        links_path = page_link.save_path.parents[-2] / "web_links.txt"
+
+        with open(links_path, 'a') as f:
+            f.write(file_string)
+
         # find attachments; Items and Assignments usually have some
-        i_files = item.find_elements_by_css_selector(
+        i_files = item.find_elements(By.CSS_SELECTOR,
             'ul.attachments > li')
         # if there are multiple attachments on the item, stick them in
         # a new folder
@@ -371,10 +386,10 @@ def gather_links(page_link, driver, delay_mult=1):
         if len(i_files) > 1:
             save_path = save_path / i_name
         for file in i_files:
-            link_element = file.find_element_by_css_selector('a')
+            link_element = file.find_element(By.CSS_SELECTOR,'a')
             link = Link(
                 link_element.get_attribute('href'),
-                file.find_element_by_css_selector('a').text.strip(),
+                file.find_element(By.CSS_SELECTOR,'a').text.strip(),
                 save_path,
                 link_element
             )
@@ -408,9 +423,19 @@ def dowload_file(session, link, history):
     # download the file
     result = session.get(link.url)
     # setup the file's full path and create any needed directories
-    link.save_path.mkdir(parents=True, exist_ok=True)
+    
+    #print("Save path: "+link.save_path)
+    save_path = link.save_path
+    try:
+        link.save_path.mkdir(parents=True, exist_ok=True)
+    except:
+        print("Attempting invalid path")
+        save_path = link.save_path.parents[-2] / "invalid_path"
+        save_path.mkdir(parents = True, exist_ok=True)
+
+
     file_name = unquote(result.url.rsplit('/', 1)[1])
-    file_path = link.save_path / file_name
+    file_path = save_path / file_name
     try:
         with file_path.open('xb') as file:
             file.write(result.content)
