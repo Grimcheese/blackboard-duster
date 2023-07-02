@@ -8,3 +8,4 @@ Pipfile*
 *.side
 /__pycache__
 pyproject.toml
+/testout
