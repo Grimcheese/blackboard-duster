@@ -35,7 +35,6 @@ TODO:
 import argparse
 import json
 import requests
-import random
 
 from enum import Enum
 from datetime import datetime
@@ -308,7 +307,8 @@ def gather_links(page_link, driver, delay_mult=1):
     """
     results = {
         'links': [],
-        'folders': []
+        'folders': [],
+        'web_links': []
     }
     web_links = []
 
@@ -355,12 +355,11 @@ def gather_links(page_link, driver, delay_mult=1):
             results['folders'].append(link)
         elif i_type == 'Web Link':
             # TODO dump links into a per-page file (markdown?)
-            print("Found a link!")
             link_element = item.find_element(By.CSS_SELECTOR, 'a')
-            print(link_element.get_attribute('href'))
             # TODO ignore webpages but download files
             
-            web_links.append(i_name + "\n\t" + link_element.get_attribute('href'))
+            results['web_links'].append(f"{i_name}\n\t{link_element.get_attribute('href')}\n")
+            #web_links.append(i_name + "\n\t" + link_element.get_attribute('href'))
         elif i_type == 'Item':
             # TODO dump info into a per-page file (markdown?)
             pass
@@ -370,13 +369,14 @@ def gather_links(page_link, driver, delay_mult=1):
                   ' type - attachments will still be collected **')
 
         # save web links to text file
-        file_string = "\n".join(web_links)
-        page_link.save_path.parents[-2].mkdir(parents=True, exist_ok=True)
-        links_path = page_link.save_path.parents[-2] / "web_links.txt"
+        
+        ##file_string = "\n".join(web_links)
+        ##page_link.save_path.parents[-2].mkdir(parents=True, exist_ok=True)
+        ##links_path = page_link.save_path.parents[-2] / "web_links.txt"
 
-        with open(links_path, 'a') as f:
-            f.write(file_string)
-
+        ##with open(links_path, 'a') as f:
+        ##    f.write(file_string)
+        
         # find attachments; Items and Assignments usually have some
         i_files = item.find_elements(By.CSS_SELECTOR,
             'ul.attachments > li')
@@ -399,7 +399,7 @@ def gather_links(page_link, driver, delay_mult=1):
     return results
 
 
-def dowload_file(session, link, history):
+def download_file(session, link, history, course):
     """uses requests to download a file"""
     # set up download result code
     res_code = DLResult.DOWNLOADED
@@ -429,9 +429,14 @@ def dowload_file(session, link, history):
     try:
         link.save_path.mkdir(parents=True, exist_ok=True)
     except:
-        print("Attempting invalid path")
-        save_path = link.save_path.parents[-2] / "invalid_path"
-        save_path.mkdir(parents = True, exist_ok=True)
+        save_path = fix_invalid_path(save_path)
+        
+        try:
+            save_path.mkdir(parents=True, exist_ok=True)
+        except:
+            print("Invalid directory name after fixing, storing in invalid_path...")
+            save_path = course.save_path / "invalid_path"
+            save_path.mkdir(parents = True, exist_ok=True)
 
 
     file_name = unquote(result.url.rsplit('/', 1)[1])
@@ -453,8 +458,30 @@ def dowload_file(session, link, history):
         dupe['lastmod'] = link.lastmod.strftime(lastmod_parse_fmt)
     return res_code
 
+def fix_invalid_path(link):
+    """attempt to fix a file path that contains invalid characters
+    
+    Only checks for printable ASCII characters that are forbidden, does not check
+    for non-printable characters or reserved file names as they seem incredibly
+    unlikely to be used as file names. 
+    
+    If the path is still invalid after this 'fix' then it can be assumed there is 
+    some other issue with creating the directory (same name, drive issue, reserved
+    name, etc) and the save_path should be set to the page root directly (hopefully
+    the page name is not the source of the issue!).
+    """
+    invalid_chars = [':', '(', ')', '/', '<', '>', '"', '\\', '|', '?', '*']
+    
+    parts = link.parts
+    for part in parts:
+        for c in invalid_chars:
+            if c in part:
+                part.replace(c, " ")
+    
+    new_path = Path(*parts)
+    return new_path
 
-def download_links(links, driver, session, history):
+def download_links(links, driver, session, history, course):
     """uses requests to download files, shows a progress bar
 
     driver: a WebDriver object
@@ -469,7 +496,7 @@ def download_links(links, driver, session, history):
     # set progress bar length
     prog_len = get_terminal_size().columns-2
     for count, link in enumerate(links):
-        res_code = dowload_file(session, link, history)
+        res_code = download_file(session, link, history, course)
         counters[res_code.value] += 1
         # mark link to indicate download result to user
         apply_style(driver, link.element, res_code)
@@ -495,7 +522,7 @@ def download_links(links, driver, session, history):
     return counters
 
 
-def process_page(page_link, driver, session, history, args):
+def process_page(page_link, driver, session, history, args, course):
     """gathers urls and downloads file from a page, handles folders
 
     page_link: link object
@@ -510,7 +537,14 @@ def process_page(page_link, driver, session, history, args):
     driver.get(page_link.url)
     gather_results = gather_links(page_link, driver, args.delay)
     counters = download_links(
-        gather_results['links'], driver, session, history)
+        gather_results['links'], driver, session, history, course)
+    
+    # save web links in folder
+    course.save_path.mkdir(parents=True, exist_ok=True)
+    with open(course.save_path / 'web_links.txt', 'a') as links_file:
+        for link in gather_results['web_links']:
+            links_file.write(link)
+        
     # save history after every page
     try:
         with args.historypath.open('w') as file:
@@ -526,7 +560,7 @@ def process_page(page_link, driver, session, history, args):
         print('\033[A\033[K', end='\r')
     for folder_link in gather_results['folders']:
         sub_counters = process_page(
-            folder_link, driver, session, history, args)
+            folder_link, driver, session, history, args, course)
         for i, s_ctr in enumerate(sub_counters):
             counters[i] += s_ctr
     return counters
@@ -571,7 +605,7 @@ def main():
                 print(f'  *SKIPPED* {page.name}')
                 continue
             page_counters = process_page(
-                page, driver, session, history, args)
+                page, driver, session, history, args, course)
             for i, p_ctr in enumerate(page_counters):
                 counters[i] += p_ctr
     print('#'*get_terminal_size().columns)
