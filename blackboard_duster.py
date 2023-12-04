@@ -171,6 +171,18 @@ def parse_args():
     return args
 # end parse_args()
 
+def wait_on_XPATH_selector(driver, selector, delay_mult, delay):
+    """delay until an element is located by the given xpath selector"""
+    try:
+        WebDriverWait(driver, delay_mult * delay).until(
+            EC.presence_of_element_located((
+                By.XPATH, selector))
+        )
+    except TimeoutException:
+        return False
+    return True
+# end wait_on_CSS_selector
+
 
 def wait_on_CSS_selector(driver, selector, delay_mult, delay):
     """delay until an element is located by the given css selector"""
@@ -244,15 +256,15 @@ def get_courses_info(driver, delay_mult, save_root):
     """
     result = []
     # TODO course announcements are included in the list
-    if not wait_on_CSS_selector(
-            driver,'div#div_4_1 a',delay_mult,10):
+    if not wait_on_XPATH_selector(
+            driver,"//div[@id='module:_4_1']",delay_mult,10):
         print('I did not see your course list! Aborting')
         driver.quit()
         exit()
     # be more specific when selecting the links - the wait statement's
     # selector includes announcement links, which we don't want
-    course_links = driver.find_elements(By.CSS_SELECTOR,
-        'div#div_4_1 > div > ul > li > a')
+    course_links = driver.find_elements(By.XPATH,
+        "//div[@id='module:_4_1']/div[@id='Current_Training_Tools']/div[@id='_4_1termCourses_noterm']/ul/li/a")
     for c_l in course_links:
         link = Link(
             c_l.get_attribute('href'),
