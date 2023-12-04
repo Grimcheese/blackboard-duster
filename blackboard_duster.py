@@ -446,6 +446,7 @@ def download_file(session, link, history, course):
         try:
             save_path.mkdir(parents=True, exist_ok=True)
         except:
+            # Possibly unnecessary with new fix but leave in case other issue arises with path names
             print("Invalid directory name after fixing, storing in invalid_path...")
             save_path = course.save_path / "invalid_path"
             save_path.mkdir(parents = True, exist_ok=True)
@@ -471,7 +472,7 @@ def download_file(session, link, history, course):
     return res_code
 
 def fix_invalid_path(link):
-    """attempt to fix a file path that contains invalid characters
+    """attempt to fix a file path by replacing invalid characters with ""
     
     Only checks for printable ASCII characters that are forbidden, does not check
     for non-printable characters or reserved file names as they seem incredibly
@@ -482,16 +483,14 @@ def fix_invalid_path(link):
     name, etc) and the save_path should be set to the page root directly (hopefully
     the page name is not the source of the issue!).
     """
-    invalid_chars = [':', '(', ')', '/', '<', '>', '"', '\\', '|', '?', '*']
+    invalid_chars = [':', '(', ')', '<', '>', '"', '|', '?', '*']
+
+    print(f"Fixing file path with invalid characters:\n\t{link}")
+    for ch in invalid_chars:
+        link = Path(str(link).replace(ch, ""))
+    print(f"New path: {link}")
     
-    parts = link.parts
-    for part in parts:
-        for c in invalid_chars:
-            if c in part:
-                part.replace(c, " ")
-    
-    new_path = Path(*parts)
-    return new_path
+    return link
 
 def download_links(links, driver, session, history, course):
     """uses requests to download files, shows a progress bar
